@@ -6,7 +6,7 @@
 
 A writing game for kids: write a sentence or two about each row of pictures, and every picture lights up once its word is used. When a page is done, the rows join into one story to read back, hear aloud or print, and the next page brings new pictures.
 
-**Use it:** https://picture-story.vercel.app
+**Use it:** https://picture-story-mauve.vercel.app
 
 ## What it does
 
