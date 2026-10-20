@@ -1,7 +1,12 @@
 // Service worker logic. Plain JavaScript with no imports so the build can inline it
 // into /sw.js as-is (the `export` keywords are stripped there). Tested in worker.test.ts.
 
-/** The one page this app has. Only a good copy of it is ever cached. */
+/**
+ * The one page this app has. Each version's copy is cached at install, together
+ * with the exact files it loads, and never replaced afterwards: the offline copy
+ * always matches the cached scripts and styles. A new version gets its own cache,
+ * which is used only once that version installed completely.
+ */
 export const SHELL = "/";
 
 /**
@@ -15,7 +20,10 @@ export function registerWorker(scope, config) {
     event.waitUntil(
       scope.caches
         .open(cacheName)
-        .then((c) => c.addAll(precache))
+        // cache: "reload" skips the browser's HTTP cache, so the page and files come from this release.
+        .then((c) =>
+          c.addAll(precache.map((u) => new Request(new URL(u, scope.location.origin).href, { cache: "reload" }))),
+        )
         .then(() => scope.skipWaiting()),
     );
   });
@@ -33,7 +41,7 @@ export function registerWorker(scope, config) {
     const req = event.request;
     if (req.method !== "GET" || new URL(req.url).origin !== scope.location.origin) return;
     if (req.mode === "navigate") {
-      event.respondWith(handleNavigation(scope, cacheName, req, (p) => event.waitUntil(p)));
+      event.respondWith(handleNavigation(scope, cacheName, req));
       return;
     }
     // ignoreVary: a module script asks with an Origin header, the precache didn't.
@@ -47,23 +55,16 @@ export function registerWorker(scope, config) {
 }
 
 /**
- * Network first, so people get updates. The app shell is refreshed only from a
- * successful response for the shell itself; error pages and other paths never
- * replace it. With no network, the last good shell is served.
+ * Network first, so people get updates. The network response is passed through
+ * as it is and never cached here: the offline copy stays the one installed with
+ * this version's files. With no network, that copy is served.
  */
-export async function handleNavigation(scope, cacheName, req, waitUntil) {
-  let res;
+export async function handleNavigation(scope, cacheName, req) {
   try {
-    res = await scope.fetch(req);
+    return await scope.fetch(req);
   } catch {
     const cache = await scope.caches.open(cacheName);
     const hit = await cache.match(SHELL, { ignoreVary: true });
     return hit || Response.error();
   }
-  const path = new URL(req.url).pathname;
-  if (res.ok && !res.redirected && (path === SHELL || path === "/index.html")) {
-    const copy = res.clone();
-    waitUntil(scope.caches.open(cacheName).then((c) => c.put(SHELL, copy)));
-  }
-  return res;
 }

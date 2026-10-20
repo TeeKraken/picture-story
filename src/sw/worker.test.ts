@@ -3,39 +3,71 @@ import { describe, expect, it } from "vitest";
 import { registerWorker } from "./worker.js";
 
 const ORIGIN = "https://story.test";
+const key = (r: Request | string) => new URL(typeof r === "string" ? r : r.url, ORIGIN).pathname;
 
-/** A tiny in-memory stand-in for the service worker global and Cache Storage. */
-function fakeScope(fetchImpl: (url: string) => Promise<Response>) {
+/** The network: what the server has deployed, and whether we're online. */
+const net = {
+  online: true,
+  files: new Map<string, string>(),
+  fail: new Set<string>(),
+  async fetch(path: string): Promise<Response> {
+    if (!this.online || this.fail.has(path)) throw new TypeError("Failed to fetch");
+    const body = this.files.get(path);
+    if (body === undefined) return new Response("404: NOT_FOUND", { status: 404 });
+    if (body === "500") return new Response("server error", { status: 500 });
+    return new Response(body, { status: 200, headers: { "content-type": "text/html" } });
+  },
+};
+
+/** In-memory Cache Storage, shared by every worker version (as in a real browser). */
+function fakeCaches() {
   const stores = new Map<string, Map<string, Response>>();
-  const key = (r: Request | string) => new URL(typeof r === "string" ? r : r.url, ORIGIN).pathname;
+  return {
+    stores,
+    keys: async () => [...stores.keys()],
+    delete: async (n: string) => stores.delete(n),
+    open: async (n: string) => {
+      if (!stores.has(n)) stores.set(n, new Map());
+      const m = stores.get(n)!;
+      return {
+        match: async (r: Request | string) => m.get(key(r))?.clone(),
+        put: async (r: Request | string, res: Response) => void m.set(key(r), res),
+        addAll: async (reqs: (Request | string)[]) => {
+          // Like the real addAll: all or nothing.
+          const got: [string, Response][] = [];
+          for (const r of reqs) {
+            const res = await net.fetch(key(r));
+            if (!res.ok) throw new TypeError(`bad response for ${key(r)}`);
+            got.push([key(r), res]);
+          }
+          for (const [k, v] of got) m.set(k, v);
+        },
+      };
+    },
+  };
+}
+
+function deploy(version: string) {
+  net.files = new Map([
+    ["/", `<html>${version} shell loads /assets/${version}.js</html>`],
+    [`/assets/${version}.js`, `${version} script`],
+  ]);
+  return { cacheName: `story-${version}`, precache: ["/", `/assets/${version}.js`] };
+}
+
+/** One worker version, registered against the shared caches. */
+function worker(caches: ReturnType<typeof fakeCaches>, config: { cacheName: string; precache: string[] }) {
   const listeners: Record<string, (e: unknown) => void> = {};
   const scope = {
     location: { origin: ORIGIN },
-    fetch: (r: Request | string) => fetchImpl(key(r)),
+    fetch: (r: Request | string) => net.fetch(key(r)),
     skipWaiting: async () => {},
     clients: { claim: async () => {} },
-    caches: {
-      keys: async () => [...stores.keys()],
-      delete: async (n: string) => stores.delete(n),
-      open: async (n: string) => {
-        if (!stores.has(n)) stores.set(n, new Map());
-        const m = stores.get(n)!;
-        return {
-          match: async (r: Request | string) => m.get(key(r))?.clone(),
-          put: async (r: Request | string, res: Response) => void m.set(key(r), res),
-          addAll: async (urls: string[]) => {
-            for (const u of urls) {
-              const res = await scope.fetch(u);
-              if (!res.ok) throw new TypeError(`bad response for ${u}`);
-              m.set(key(u), res);
-            }
-          },
-        };
-      },
-    },
+    caches,
     addEventListener: (type: string, fn: (e: unknown) => void) => (listeners[type] = fn),
   };
-  async function dispatch(type: string, request?: Request) {
+  registerWorker(scope, config);
+  async function dispatch(type: string, request?: unknown) {
     const pending: Promise<unknown>[] = [];
     let response: Promise<Response> | undefined;
     listeners[type]({
@@ -43,68 +75,85 @@ function fakeScope(fetchImpl: (url: string) => Promise<Response>) {
       waitUntil: (p: Promise<unknown>) => pending.push(p),
       respondWith: (p: Promise<Response>) => (response = p),
     });
-    const res = await response;
     await Promise.all(pending);
-    return res;
+    return response ? await response : undefined;
   }
-  // Node won't construct a Request with mode "navigate", so use a request-like object.
-  const navigate = (path: string) =>
-    dispatch("fetch", { url: ORIGIN + path, method: "GET", mode: "navigate" } as unknown as Request);
-  const cachedShell = async () => (await scope.caches.open("v1")).match("/");
-  return { scope, dispatch, navigate, cachedShell };
+  return {
+    install: () => dispatch("install"),
+    activate: () => dispatch("activate"),
+    // Node won't construct a Request with mode "navigate", so use a request-like object.
+    navigate: (path: string) =>
+      dispatch("fetch", { url: ORIGIN + path, method: "GET", mode: "navigate" }) as Promise<Response>,
+    get: (path: string) => dispatch("fetch", new Request(ORIGIN + path)) as Promise<Response>,
+  };
 }
 
-const page = (body: string, status = 200) =>
-  new Response(body, { status, headers: { "content-type": "text/html" } });
+function reset() {
+  net.online = true;
+  net.fail.clear();
+}
 
-describe("service worker app shell", () => {
-  it("keeps the good shell after 404 and 500 navigations, and serves it offline", async () => {
-    let mode: "ok" | "404" | "500" | "offline" = "ok";
-    const { scope, dispatch, navigate, cachedShell } = fakeScope(async (path) => {
-      if (mode === "offline") throw new TypeError("Failed to fetch");
-      if (mode === "404" || path === "/review-missing-route") return page("404: NOT_FOUND", 404);
-      if (mode === "500") return page("server error", 500);
-      return page(path === "/" ? "APP SHELL" : `asset ${path}`);
-    });
-    registerWorker(scope, { cacheName: "v1", precache: ["/", "/assets/app.js"] });
-    await dispatch("install");
-
-    // An unknown route returns 404 to the page, but must not replace the shell.
-    const missing = await navigate("/review-missing-route");
-    expect(missing!.status).toBe(404);
-    expect((await cachedShell())!.status).toBe(200);
-
-    // A server error at the root is passed through, but not cached.
-    mode = "500";
-    expect((await navigate("/"))!.status).toBe(500);
-    expect(await (await cachedShell())!.text()).toBe("APP SHELL");
-
-    mode = "offline";
-    const offline = await navigate("/");
-    expect(offline!.status).toBe(200);
-    expect(await offline!.text()).toBe("APP SHELL");
+describe("service worker", () => {
+  it("serves the installed shell and its files offline", async () => {
+    reset();
+    const caches = fakeCaches();
+    const v1 = worker(caches, deploy("v1"));
+    await v1.install();
+    await v1.activate();
+    net.online = false;
+    expect(await (await v1.navigate("/")).text()).toContain("v1 shell");
+    expect(await (await v1.get("/assets/v1.js")).text()).toBe("v1 script");
   });
 
-  it("refreshes the shell from a good online response", async () => {
-    let body = "OLD SHELL";
-    const { scope, dispatch, navigate, cachedShell } = fakeScope(async () => page(body));
-    registerWorker(scope, { cacheName: "v1", precache: ["/"] });
-    await dispatch("install");
-    body = "NEW SHELL";
-    await navigate("/");
-    expect(await (await cachedShell())!.text()).toBe("NEW SHELL");
+  it("passes 404 and 500 pages through without touching the offline shell", async () => {
+    reset();
+    const caches = fakeCaches();
+    const v1 = worker(caches, deploy("v1"));
+    await v1.install();
+    expect((await v1.navigate("/missing")).status).toBe(404);
+    net.files.set("/", "500");
+    expect((await v1.navigate("/")).status).toBe(500);
+    net.online = false;
+    const offline = await v1.navigate("/");
+    expect(offline.status).toBe(200);
+    expect(await offline.text()).toContain("v1 shell");
   });
 
-  it("serves precached assets without the network", async () => {
-    let online = true;
-    const { scope, dispatch } = fakeScope(async (path) => {
-      if (!online) throw new TypeError("offline");
-      return new Response(`asset ${path}`);
-    });
-    registerWorker(scope, { cacheName: "v1", precache: ["/", "/assets/app.js"] });
-    await dispatch("install");
-    online = false;
-    const res = await dispatch("fetch", new Request(ORIGIN + "/assets/app.js"));
-    expect(await res!.text()).toBe("asset /assets/app.js");
+  it("keeps the old version working offline when a new version's install is interrupted", async () => {
+    reset();
+    const caches = fakeCaches();
+    const v1 = worker(caches, deploy("v1"));
+    await v1.install();
+    await v1.activate();
+
+    // A new release goes live. Online, v1 passes the new page and its script through.
+    const v2config = deploy("v2");
+    expect(await (await v1.navigate("/")).text()).toContain("v2 shell");
+    expect(await (await v1.get("/assets/v2.js")).text()).toBe("v2 script");
+
+    // v2's install fails part-way (the connection drops while fetching its script).
+    net.fail.add("/assets/v2.js");
+    const v2 = worker(caches, v2config);
+    await expect(v2.install()).rejects.toThrow();
+
+    // Offline, v1 still serves its own shell, which loads a script it has.
+    net.online = false;
+    expect(await (await v1.navigate("/")).text()).toContain("v1 shell loads /assets/v1.js");
+    expect(await (await v1.get("/assets/v1.js")).text()).toBe("v1 script");
+  });
+
+  it("switches to the new version only after it installed completely", async () => {
+    reset();
+    const caches = fakeCaches();
+    const v1 = worker(caches, deploy("v1"));
+    await v1.install();
+    await v1.activate();
+    const v2 = worker(caches, deploy("v2"));
+    await v2.install();
+    await v2.activate();
+    expect([...caches.stores.keys()]).toEqual(["story-v2"]);
+    net.online = false;
+    expect(await (await v2.navigate("/")).text()).toContain("v2 shell loads /assets/v2.js");
+    expect(await (await v2.get("/assets/v2.js")).text()).toBe("v2 script");
   });
 });

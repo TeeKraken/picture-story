@@ -54,24 +54,61 @@ const IRREGULAR: Record<string, string> = {
 };
 const IRREGULAR_BACK = Object.fromEntries(Object.entries(IRREGULAR).map(([a, b]) => [b, a]));
 
-/** The plural spellings a child might use for a word (dog → dogs, fox → foxes, baby → babies). */
+/** Words that are the same in the plural. */
+const SAME_PLURAL = new Set(["sheep", "deer", "moose", "fish", "salmon", "trout", "aircraft", "series", "species"]);
+
+/**
+ * The correct plural spellings of a word (dog → dogs, fox → foxes, baby → babies).
+ * Conservative on purpose: misspellings like "foxs" or "babys" don't count.
+ */
 export function pluralForms(word: string): Set<string> {
-  const forms = new Set<string>([word + "s", word + "es"]);
-  if (IRREGULAR[word]) forms.add(IRREGULAR[word]);
-  if (/[^aeiou]y$/.test(word)) forms.add(word.slice(0, -1) + "ies");
-  if (word.endsWith("fe")) forms.add(word.slice(0, -2) + "ves");
-  else if (word.endsWith("f")) forms.add(word.slice(0, -1) + "ves");
+  const forms = new Set<string>();
+  if (SAME_PLURAL.has(word)) {
+    if (word === "fish") forms.add("fishes");
+    return forms;
+  }
+  if (IRREGULAR[word]) {
+    forms.add(IRREGULAR[word]);
+    return forms;
+  }
+  if (/(s|x|z|ch|sh)$/.test(word)) forms.add(word + "es");
+  else if (/[^aeiou]y$/.test(word)) forms.add(word.slice(0, -1) + "ies");
+  else if (/[^aeiou]o$/.test(word)) {
+    forms.add(word + "es"); // potatoes
+    forms.add(word + "s"); // pianos
+  } else if (word.endsWith("fe")) {
+    forms.add(word.slice(0, -2) + "ves"); // knives
+    forms.add(word + "s"); // giraffes, cafes
+  } else if (word.endsWith("f")) {
+    forms.add(word.slice(0, -1) + "ves"); // leaves
+    forms.add(word + "s"); // roofs
+  } else forms.add(word + "s");
   return forms;
 }
 
-/** True when a typed word is the same as the picture's word, or a plural or singular of it. */
+/**
+ * Singulars of a word a grown-up typed in the plural ("grapes" → "grape"), so the
+ * child can use either. A typed word must be a real singular whose plural is
+ * exactly this word: "bu" doesn't count for "bus", nor "glas" for "glass".
+ */
+function singularForms(word: string): string[] {
+  const out: string[] = [];
+  if (IRREGULAR_BACK[word]) out.push(IRREGULAR_BACK[word]);
+  if (word.length < 4 || /(ss|us|is)$/.test(word)) return out;
+  const candidates = [word.slice(0, -1)];
+  if (word.endsWith("es")) candidates.push(word.slice(0, -2));
+  if (word.endsWith("ies")) candidates.push(word.slice(0, -3) + "y");
+  if (word.endsWith("ves")) candidates.push(word.slice(0, -3) + "f", word.slice(0, -3) + "fe");
+  for (const c of candidates) if (c.length >= 2 && pluralForms(c).has(word)) out.push(c);
+  return out;
+}
+
+/** True when a typed word is the picture's word, or its correct plural or singular. */
 export function sameWord(typed: string, word: string): boolean {
   if (!typed || !word) return false;
   if (typed === word) return true;
   if (pluralForms(word).has(typed)) return true;
-  if (pluralForms(typed).has(word)) return true;
-  if (IRREGULAR_BACK[typed] === word || IRREGULAR_BACK[word] === typed) return true;
-  return false;
+  return singularForms(word).includes(typed);
 }
 
 /**

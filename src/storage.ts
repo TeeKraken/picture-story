@@ -1,25 +1,29 @@
+import type { Data } from "./logic/edits";
 import { STARTERS } from "./logic/starters";
-import { cleanSets, type Progress, type StorySet } from "./logic/story";
+import { cleanSets, type Progress } from "./logic/story";
 
-export interface Stored {
-  sets: StorySet[];
-  progress: Record<string, Progress>;
-  currentId: string;
-  /** Say words and stories aloud (only ever with a voice that runs on this device). */
-  speak: boolean;
-}
+export type Stored = Data;
 
-const KEY = "picture-story:v1";
+export const KEY = "picture-story:v1";
 
 export function defaults(): Stored {
   const sets = structuredClone(STARTERS);
   return { sets, progress: {}, currentId: sets[0].id, speak: true };
 }
 
-/** Reads saved data, falling back to the starter stories if storage is empty, blocked or corrupt. */
-export function load(): Stored {
+/** The browser's storage, or null when the browser blocks it (reading `localStorage` itself can throw). */
+export function browserStorage(): Storage | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads saved data, falling back to the starter stories if storage is empty, blocked or corrupt. */
+export function load(storage: Storage | null = browserStorage()): Stored {
+  try {
+    const raw = storage?.getItem(KEY);
     if (!raw) return defaults();
     const parsed = JSON.parse(raw) as Partial<Stored>;
     const sets = cleanSets(parsed.sets);
@@ -37,10 +41,11 @@ export function load(): Stored {
   }
 }
 
-/** Saves everything. Returns false if the browser refused (for example, it is out of space). */
-export function save(data: Stored): boolean {
+/** Saves everything. Returns false if the browser refused (blocked, or out of space). */
+export function save(data: Stored, storage: Storage | null = browserStorage()): boolean {
+  if (!storage) return false;
   try {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    storage.setItem(KEY, JSON.stringify(data));
     return true;
   } catch {
     return false;

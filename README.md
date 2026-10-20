@@ -11,7 +11,7 @@ A writing game for kids: write a sentence or two about each row of pictures, and
 ## What it does
 
 - **Rows of pictures to write about.** Each page has a few rows; each row has a few pictures and a box to write in.
-- **Pictures light up as their words are used.** Plurals and possessives count (dog, dogs, dog's; fox, foxes; mouse, mice). The words that lit a picture are highlighted in the child's writing.
+- **Pictures light up as their words are used.** Correct plurals and possessives count (dog, dogs, dog's; fox, foxes; mouse, mice); misspelt ones like "foxs" don't. The words that lit a picture are highlighted in the child's writing.
 - **Stuck? Tap a picture** to see its word, and hear it if the device has a built-in voice.
 - **One story at the end.** When every picture on a page is lit, the rows join into a story. The story only ever shows pages the child has finished, in their own words (tidied to start with a capital and end with a full stop).
 - **Turn the page** for new pictures. Progress is saved, so a child can stop and come back.
@@ -19,9 +19,10 @@ A writing game for kids: write a sentence or two about each row of pictures, and
 - **Grown-ups make their own stories.** Choose emoji or your own photos and drawings, and the word for each. Add other words that should count after a comma (`cat, kitten`). Three starter stories are included.
 - **Print** the finished story.
 - **Works offline.** Install it to a tablet's home screen and use it with no signal.
-- **Private.** Everything, photos included, is saved on the device only. No account, no tracking, no analytics, no third-party scripts.
+- **Private.** Stories, writing and photos are saved on the device only, and the app never uploads them. No account, no tracking, no analytics, no third-party scripts. Spellcheck is turned off in the writing boxes, because some browsers' spellcheck sends text to an online service. (Other browser or keyboard features are outside the app's control.)
+- **Warns if it can't save.** If the device's storage is full or blocked, a lasting "Not saved" warning appears. The writing stays on screen, and there are buttons to try again or copy all the writing.
 
-Works on phones from 375px wide and on tablets, follows your system's light or dark mode, and respects "reduce motion". Screen readers hear each picture light up, each row's progress, and the word when a picture is tapped.
+Needs a current browser (tested in Chrome at phone and desktop sizes). Works on phones from 375px wide and on tablets, follows your system's light or dark mode, and respects "reduce motion". Screen readers hear each picture light up, each row's progress, and the word when a picture is tapped.
 
 ## Develop
 
@@ -41,7 +42,11 @@ The interesting logic is small and pure, in `src/logic/`:
 - `story.ts` holds the story model: row and page progress, joining finished pages into the story, checking a story a grown-up made, and reading saved data safely.
 - `starters.ts` has the starter stories and the emoji to pick from.
 
-The offline logic is in `src/sw/worker.js` (tested in `worker.test.ts`); the build inlines it into `/sw.js` with the list of files to cache. Only a successful response for the app's own page ever replaces the cached copy.
+- `edits.ts` builds each change (save, delete, restore) as a new copy, which is only used once it has been saved.
+
+`src/save-status.ts` is the "Not saved" warning; `src/save.ui.test.ts` tests it, and the save paths, with storage that is denied or over quota (vitest + jsdom).
+
+The offline logic is in `src/sw/worker.js` (tested in `worker.test.ts`); the build inlines it into `/sw.js` with the list of files to cache. Each version caches its page together with the exact files it loads, at install, and never overwrites that copy, so the offline app always matches its scripts. A new version is used offline only after it has installed completely.
 
 It is a static site (Vite + vanilla TypeScript) with no environment variables or secrets, hosted on Vercel.
 

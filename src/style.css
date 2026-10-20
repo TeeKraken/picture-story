@@ -740,6 +740,56 @@ dialog::backdrop {
   padding: 0;
 }
 
+/* ---------- Not-saved warning ---------- */
+
+.save-status:not(.unsaved) .save-alert {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.save-status.unsaved {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--error-bg);
+  border-bottom: 3px solid var(--error);
+  padding: 12px 16px;
+}
+.save-status.unsaved > * {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.save-alert {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.save-note {
+  margin: 6px 0 0;
+}
+.save-note:empty {
+  display: none;
+}
+.save-fallback {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  font: inherit;
+  padding: 8px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
 /* ---------- Footer ---------- */
 
 .foot {
@@ -762,6 +812,7 @@ dialog::backdrop {
   .actions,
   .foot,
   .lede,
+  .save-status,
   .skip {
     display: none !important;
   }

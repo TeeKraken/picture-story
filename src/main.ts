@@ -5,11 +5,9 @@ import { EMOJI, STARTERS } from "./logic/starters";
 import {
   LIMITS,
   checkDraft,
-  emptyProgress,
   fitProgress,
   pageDone,
   pagesDone,
-  picturesChanged,
   rowState,
   storyParagraphs,
   toDraft,
@@ -21,6 +19,8 @@ import {
   type StorySet,
 } from "./logic/story";
 import { canSpeak, initSpeech, say, stopSpeaking } from "./speech";
+import { allWriting, withSetDeleted, withSetSaved, withStartersRestored, withStoryRestarted } from "./logic/edits";
+import { createSaveStatus } from "./save-status";
 import { load, save, type Stored } from "./storage";
 
 const IDEA_URL = "https://somebodybuildthis.dev/ideas/37-a-picture-story-writing-game-for-kids-that-lights-up-each-pi";
@@ -56,8 +56,30 @@ function announce(text: string) {
   window.setTimeout(() => (announcer.textContent = text), 50);
 }
 
+const saveStatus = createSaveStatus({
+  root: document.getElementById("save-status")!,
+  retry: () => save(data),
+  backupText: () => allWriting(data),
+});
+
+/** Saves the current data. Every save goes through here, so a failure always shows the warning. */
 function persist(): boolean {
-  return save(data);
+  window.clearTimeout(saveTimer);
+  const ok = save(data);
+  saveStatus.report(ok);
+  return ok;
+}
+
+/** Saves a changed copy of the data, and only switches to it if the save worked. */
+function commit(next: Stored): boolean {
+  window.clearTimeout(saveTimer);
+  const ok = save(next);
+  if (ok) {
+    data = next;
+    saveStatus.report(true);
+  }
+  // On failure `data` is untouched; the caller says what didn't happen.
+  return ok;
 }
 
 let saveTimer = 0;
@@ -98,7 +120,11 @@ function footer() {
   return h(
     "footer",
     { class: "foot" },
-    h("p", {}, "Everything stays on this device. No account, no tracking, nothing sent anywhere."),
+    h(
+      "p",
+      {},
+      "Stories, writing and photos are saved on this device only. The app has no account or tracking, and never uploads them.",
+    ),
     h(
       "p",
       {},
@@ -191,7 +217,9 @@ function renderPlay() {
       maxlength: LIMITS.text,
       autocomplete: "off",
       autocapitalize: "sentences",
-      spellcheck: "true",
+      // Off: some browsers' spellcheck sends text to an online service.
+      spellcheck: "false",
+      autocorrect: "off",
       "aria-describedby": `status-${ri}`,
     }) as HTMLTextAreaElement;
     area.value = texts[ri];
@@ -434,8 +462,10 @@ function renderStory() {
           class: "btn btn-quiet",
           onclick: () => {
             if (!confirm("Start this story again? The writing in it will be cleared.")) return;
-            data.progress[set.id] = emptyProgress(set);
-            persist();
+            if (!commit(withStoryRestarted(data, set.id))) {
+              announce("Couldn't start again: this device's storage is full or blocked. Nothing was cleared.");
+              return;
+            }
             notice = "Starting again from page 1.";
             go("#/");
           },
@@ -566,9 +596,10 @@ function renderStories() {
               type: "button",
               class: "btn btn-quiet",
               onclick: () => {
-                data.sets.push(...structuredClone(missing));
-                if (!data.sets.some((s) => s.id === data.currentId)) data.currentId = data.sets[0].id;
-                persist();
+                if (!commit(withStartersRestored(data))) {
+                  announce("Couldn't add the starter stories: this device's storage is full or blocked.");
+                  return;
+                }
                 notice = "The starter stories are back.";
                 route();
                 focusHeading();
@@ -781,37 +812,51 @@ function renderEditor(id: string) {
         ),
       ),
     );
+    // Tie each error to its field, so screen readers hear it there too.
     main.querySelectorAll(".invalid").forEach((el) => el.classList.remove("invalid"));
-    for (const e of errors) main.querySelector(`#${e.at === "title" ? "title" : e.at}`)?.classList.add("invalid");
+    main.querySelectorAll(".field-error").forEach((el) => el.remove());
+    main.querySelectorAll("[aria-invalid]").forEach((el) => {
+      el.removeAttribute("aria-invalid");
+      const ids = (el.getAttribute("aria-describedby") ?? "").split(" ").filter((x) => x && !x.startsWith("err-"));
+      if (ids.length) el.setAttribute("aria-describedby", ids.join(" "));
+      else el.removeAttribute("aria-describedby");
+    });
+    errors.forEach((e, i) => {
+      const box = main.querySelector<HTMLElement>(e.at === "title" ? "#title-field" : `#${e.at}`);
+      if (!box) return;
+      box.classList.add("invalid");
+      const errId = `err-${i}`;
+      const msg = h("p", { class: "error field-error", id: errId }, e.message);
+      const controls =
+        e.at === "title"
+          ? [main.querySelector<HTMLElement>("#title")]
+          : [
+              main.querySelector<HTMLElement>(`#${e.at}-pick`),
+              main.querySelector<HTMLElement>(`#${e.at}-words`),
+              main.querySelector<HTMLElement>(`#add-${e.at}`),
+              main.querySelector<HTMLElement>(`#addrow-${e.at}`),
+            ];
+      for (const c of controls) {
+        if (!c) continue;
+        c.setAttribute("aria-invalid", "true");
+        c.setAttribute("aria-describedby", `${c.getAttribute("aria-describedby") ?? ""} ${errId}`.trim());
+      }
+      box.append(msg);
+    });
     errorBox.focus();
   }
 
   function onSave() {
     const r = checkDraft(d);
     if (!r.ok) return showErrors(r.errors);
-    const before = structuredClone(data);
-    let message = "Saved.";
-    if (existing) {
-      if (picturesChanged(existing.pages, r.pages)) {
-        existing.version += 1;
-        delete data.progress[existing.id];
-        message = "Saved. The pictures changed, so this story starts again from page 1.";
-      }
-      existing.title = r.title;
-      existing.pages = r.pages;
-    } else {
-      const set: StorySet = { id: `s-${Date.now().toString(36)}`, title: r.title, pages: r.pages, version: 1 };
-      data.sets.push(set);
-      data.currentId = set.id;
-      message = "Saved. It's ready to play.";
-    }
-    if (!persist()) {
-      data = before;
+    // Built from the current data on every attempt, so a retry after a failed save applies the edit again.
+    const { next, message } = withSetSaved(data, id, r, `s-${Date.now().toString(36)}`);
+    if (!commit(next)) {
       showErrors([
         {
-          at: "title",
+          at: "save",
           message:
-            "This device is out of room for stories. Use emoji instead of some photos, or delete a story you don't need, then save again.",
+            "Not saved: this device is out of room for stories, or storage is blocked. Use emoji instead of some photos, or delete a story you don't need, then save again.",
         },
       ]);
       return;
@@ -824,10 +869,12 @@ function renderEditor(id: string) {
   function onDelete() {
     if (!existing) return;
     if (!confirm(`Delete “${existing.title}”? This can't be undone.`)) return;
-    data.sets = data.sets.filter((s) => s.id !== existing.id);
-    delete data.progress[existing.id];
-    if (data.currentId === existing.id) data.currentId = data.sets[0]?.id ?? "";
-    persist();
+    if (!commit(withSetDeleted(data, existing.id))) {
+      showErrors([
+        { at: "save", message: "Not deleted: this device's storage is full or blocked. Try again in a moment." },
+      ]);
+      return;
+    }
     draft = null;
     notice = `Deleted “${existing.title}”.`;
     go("#/stories");
@@ -858,7 +905,7 @@ function renderEditor(id: string) {
     errorBox,
     h(
       "div",
-      { class: "field" },
+      { class: "field", id: "title-field" },
       h("label", { for: "title" }, "Story name"),
       title,
     ),
