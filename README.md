@@ -11,7 +11,7 @@ A writing game for kids: write a sentence or two about each row of pictures, and
 ## What it does
 
 - **Rows of pictures to write about.** Each page has a few rows; each row has a few pictures and a box to write in.
-- **Pictures light up as their words are used.** Correct plurals and possessives count (dog, dogs, dog's; fox, foxes; mouse, mice); misspelt ones like "foxs" don't. The words that lit a picture are highlighted in the child's writing.
+- **Pictures light up as their words are used.** Plurals and possessives count (dog, dogs, dog's; fox, foxes; mouse, mice). Common misspellings like "foxs" or "babys" don't light a picture, though the rules are simple and won't catch every one. The words that lit a picture are highlighted in the child's writing.
 - **Stuck? Tap a picture** to see its word, and hear it if the device has a built-in voice.
 - **One story at the end.** When every picture on a page is lit, the rows join into a story. The story only ever shows pages the child has finished, in their own words (tidied to start with a capital and end with a full stop).
 - **Turn the page** for new pictures. Progress is saved, so a child can stop and come back.
@@ -46,7 +46,7 @@ The interesting logic is small and pure, in `src/logic/`:
 
 `src/save-status.ts` is the "Not saved" warning; `src/save.ui.test.ts` tests it, and the save paths, with storage that is denied or over quota (vitest + jsdom).
 
-The offline logic is in `src/sw/worker.js` (tested in `worker.test.ts`); the build inlines it into `/sw.js` with the list of files to cache. Each version caches its page together with the exact files it loads, at install, and never overwrites that copy, so the offline app always matches its scripts. A new version is used offline only after it has installed completely.
+The offline logic is in `src/sw/worker.js` (tested in `worker.test.ts`); the build inlines it into `/sw.js` with the list of files to cache. At install, each version fetches the page, checks that every script and stylesheet it loads is in that version's own file list (during a deploy, the page can briefly come from a different release), caches those files, and only then stores the page. A mismatch fails the install, so the previous version and its cache stay in charge. The stored page is never overwritten afterwards, so the offline app always matches its scripts, and a new version is used offline only after it has installed completely.
 
 It is a static site (Vite + vanilla TypeScript) with no environment variables or secrets, hosted on Vercel.
 

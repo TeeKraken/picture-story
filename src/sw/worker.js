@@ -10,6 +10,45 @@
 export const SHELL = "/";
 
 /**
+ * The scripts and stylesheets a page loads from this site, as paths ("/assets/index-abc.js").
+ * @param {string} html
+ * @param {string} origin
+ */
+export function shellAssets(html, origin) {
+  const out = new Set();
+  const tags = html.match(/<(script|link)\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    const isScript = /^<script/i.test(tag);
+    if (!isScript && !/\brel\s*=\s*["']?(stylesheet|modulepreload)\b/i.test(tag)) continue;
+    const m = tag.match(isScript ? /\bsrc\s*=\s*["']([^"']+)["']/i : /\bhref\s*=\s*["']([^"']+)["']/i);
+    if (!m) continue;
+    const url = new URL(m[1], origin + "/");
+    if (url.origin === origin) out.add(url.pathname);
+  }
+  return [...out];
+}
+
+/**
+ * Caches one release: its page and the exact files that page loads. During a
+ * deploy, "/" can come from a different release than this worker's files. So the
+ * page is fetched first and checked: if it loads any script or stylesheet that
+ * isn't in this worker's own list, the install fails and the previous worker and
+ * its cache stay in charge. The page is stored only after all its files are.
+ */
+export async function installRelease(scope, cacheName, precache) {
+  const fresh = (u) => new Request(new URL(u, scope.location.origin).href, { cache: "reload" });
+  const res = await scope.fetch(fresh(SHELL));
+  if (!res.ok) throw new TypeError(`The page returned ${res.status}`);
+  const html = await res.clone().text();
+  const listed = new Set(precache);
+  const foreign = shellAssets(html, scope.location.origin).filter((p) => !listed.has(p));
+  if (foreign.length) throw new TypeError(`The page is from another release (loads ${foreign.join(", ")})`);
+  const cache = await scope.caches.open(cacheName);
+  await cache.addAll(precache.filter((u) => u !== SHELL).map(fresh));
+  await cache.put(SHELL, res);
+}
+
+/**
  * @param {any} scope  the service worker global (self), or a fake in tests
  * @param {{ cacheName: string, precache: string[] }} config
  */
@@ -17,15 +56,7 @@ export function registerWorker(scope, config) {
   const { cacheName, precache } = config;
 
   scope.addEventListener("install", (event) => {
-    event.waitUntil(
-      scope.caches
-        .open(cacheName)
-        // cache: "reload" skips the browser's HTTP cache, so the page and files come from this release.
-        .then((c) =>
-          c.addAll(precache.map((u) => new Request(new URL(u, scope.location.origin).href, { cache: "reload" }))),
-        )
-        .then(() => scope.skipWaiting()),
-    );
+    event.waitUntil(installRelease(scope, cacheName, precache).then(() => scope.skipWaiting()));
   });
 
   scope.addEventListener("activate", (event) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JS module without type declarations
-import { registerWorker } from "./worker.js";
+import { registerWorker, shellAssets } from "./worker.js";
 
 const ORIGIN = "https://story.test";
 const key = (r: Request | string) => new URL(typeof r === "string" ? r : r.url, ORIGIN).pathname;
@@ -47,12 +47,17 @@ function fakeCaches() {
   };
 }
 
+const page = (version: string) =>
+  `<html><head><title>${version} shell</title><script type="module" crossorigin src="/assets/${version}.js"></script>` +
+  `<link rel="stylesheet" crossorigin href="/assets/${version}.css"><link rel="manifest" href="/manifest.webmanifest"></head></html>`;
+
 function deploy(version: string) {
   net.files = new Map([
-    ["/", `<html>${version} shell loads /assets/${version}.js</html>`],
+    ["/", page(version)],
     [`/assets/${version}.js`, `${version} script`],
+    [`/assets/${version}.css`, `${version} styles`],
   ]);
-  return { cacheName: `story-${version}`, precache: ["/", `/assets/${version}.js`] };
+  return { cacheName: `story-${version}`, precache: ["/", `/assets/${version}.js`, `/assets/${version}.css`] };
 }
 
 /** One worker version, registered against the shared caches. */
@@ -92,6 +97,15 @@ function reset() {
   net.online = true;
   net.fail.clear();
 }
+
+describe("shellAssets", () => {
+  it("lists this site's scripts and stylesheets, not other links or other sites", () => {
+    const html =
+      page("v9") +
+      '<link rel="icon" href="/icon.svg"><script src="https://cdn.example/x.js"></script><link rel=modulepreload href="/assets/chunk.js">';
+    expect(shellAssets(html, ORIGIN)).toEqual(["/assets/v9.js", "/assets/v9.css", "/assets/chunk.js"]);
+  });
+});
 
 describe("service worker", () => {
   it("serves the installed shell and its files offline", async () => {
@@ -138,7 +152,7 @@ describe("service worker", () => {
 
     // Offline, v1 still serves its own shell, which loads a script it has.
     net.online = false;
-    expect(await (await v1.navigate("/")).text()).toContain("v1 shell loads /assets/v1.js");
+    expect(await (await v1.navigate("/")).text()).toContain("v1 shell");
     expect(await (await v1.get("/assets/v1.js")).text()).toBe("v1 script");
   });
 
@@ -153,7 +167,36 @@ describe("service worker", () => {
     await v2.activate();
     expect([...caches.stores.keys()]).toEqual(["story-v2"]);
     net.online = false;
-    expect(await (await v2.navigate("/")).text()).toContain("v2 shell loads /assets/v2.js");
+    expect(await (await v2.navigate("/")).text()).toContain("v2 shell");
     expect(await (await v2.get("/assets/v2.js")).text()).toBe("v2 script");
+  });
+
+  it("refuses to install when the page comes from another release, even if every file loads", async () => {
+    reset();
+    const caches = fakeCaches();
+    const v1 = worker(caches, deploy("v1"));
+    await v1.install();
+    await v1.activate();
+
+    // Mid-deploy: v2's worker and files are live, but "/" already serves v3's page (all 200s).
+    const v2config = deploy("v2");
+    net.files.set("/", page("v3"));
+    const v2 = worker(caches, v2config);
+    await expect(v2.install()).rejects.toThrow(/another release/);
+    expect([...caches.stores.get("story-v2")?.keys() ?? []]).not.toContain("/");
+
+    // The old worker and its cache stay in charge, and still work offline.
+    net.online = false;
+    expect(await (await v1.navigate("/")).text()).toContain("v1 shell");
+    expect(await (await v1.get("/assets/v1.js")).text()).toBe("v1 script");
+  });
+
+  it("refuses an older page too (a new worker fetching the previous release's page)", async () => {
+    reset();
+    const caches = fakeCaches();
+    const v2config = deploy("v2");
+    net.files.set("/", page("v1"));
+    net.files.set("/assets/v1.js", "v1 script");
+    await expect(worker(caches, v2config).install()).rejects.toThrow(/another release/);
   });
 });

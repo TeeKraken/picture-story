@@ -24,6 +24,13 @@ describe("sameWord", () => {
     ["fishes", "fish"],
     ["berry", "berries"],
     ["wolf", "wolves"],
+    ["baby", "babies"],
+    ["potato", "potatoes"],
+    ["pianos", "piano"],
+    ["pie", "pies"],
+    ["horse", "horses"],
+    ["shoe", "shoes"],
+    ["glove", "gloves"],
   ])("%s counts for %s", (typed, word) => {
     expect(sameWord(typed, word)).toBe(true);
   });
@@ -41,6 +48,10 @@ describe("sameWord", () => {
     ["sheeps", "sheep"],
     ["mouses", "mouse"],
     ["gra", "grapes"],
+    ["babie", "babies"],
+    ["potatos", "potato"],
+    ["potatoe", "potatoes"],
+    ["hors", "horses"],
   ])("%s does not count for %s", (typed, word) => {
     expect(sameWord(typed, word)).toBe(false);
   });

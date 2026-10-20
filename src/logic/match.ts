@@ -54,6 +54,9 @@ const IRREGULAR: Record<string, string> = {
 };
 const IRREGULAR_BACK = Object.fromEntries(Object.entries(IRREGULAR).map(([a, b]) => [b, a]));
 
+/** Words ending in -o whose plural adds -es. Others just add -s (pianos, photos). */
+const O_ES = new Set(["potato", "tomato", "hero", "echo", "mosquito", "torpedo", "veto", "volcano", "domino"]);
+
 /** Words that are the same in the plural. */
 const SAME_PLURAL = new Set(["sheep", "deer", "moose", "fish", "salmon", "trout", "aircraft", "series", "species"]);
 
@@ -73,10 +76,8 @@ export function pluralForms(word: string): Set<string> {
   }
   if (/(s|x|z|ch|sh)$/.test(word)) forms.add(word + "es");
   else if (/[^aeiou]y$/.test(word)) forms.add(word.slice(0, -1) + "ies");
-  else if (/[^aeiou]o$/.test(word)) {
-    forms.add(word + "es"); // potatoes
-    forms.add(word + "s"); // pianos
-  } else if (word.endsWith("fe")) {
+  else if (O_ES.has(word)) forms.add(word + "es"); // potatoes (pianos, zoos: the usual +s)
+  else if (word.endsWith("fe")) {
     forms.add(word.slice(0, -2) + "ves"); // knives
     forms.add(word + "s"); // giraffes, cafes
   } else if (word.endsWith("f")) {
@@ -95,10 +96,25 @@ function singularForms(word: string): string[] {
   const out: string[] = [];
   if (IRREGULAR_BACK[word]) out.push(IRREGULAR_BACK[word]);
   if (word.length < 4 || /(ss|us|is)$/.test(word)) return out;
-  const candidates = [word.slice(0, -1)];
-  if (word.endsWith("es")) candidates.push(word.slice(0, -2));
-  if (word.endsWith("ies")) candidates.push(word.slice(0, -3) + "y");
-  if (word.endsWith("ves")) candidates.push(word.slice(0, -3) + "f", word.slice(0, -3) + "fe");
+  const candidates: string[] = [];
+  if (word.endsWith("ies")) {
+    candidates.push(word.slice(0, -3) + "y"); // babies → baby, never "babie"
+    if (word.length <= 4) candidates.push(word.slice(0, -1)); // pies → pie
+  } else if (word.endsWith("ves")) {
+    candidates.push(word.slice(0, -3) + "f", word.slice(0, -3) + "fe"); // leaves, knives
+    candidates.push(word.slice(0, -1)); // gloves → glove
+  } else if (word.endsWith("es")) {
+    const stem = word.slice(0, -2);
+    // potatoes → potato only (not "potatoe"); shoes → shoe; foxes → fox; horses → horse
+    if (word.endsWith("oes") && pluralForms(stem).has(word)) candidates.push(stem);
+    else {
+      // buses → bus, glasses → glass; but not horses → "hors"
+      if (!stem.endsWith("s") || /[aeiou]s$|ss$/.test(stem)) candidates.push(stem);
+      candidates.push(word.slice(0, -1));
+    }
+  } else if (word.endsWith("s")) {
+    candidates.push(word.slice(0, -1)); // grapes → grape
+  }
   for (const c of candidates) if (c.length >= 2 && pluralForms(c).has(word)) out.push(c);
   return out;
 }
