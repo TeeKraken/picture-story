@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Picture Story: a writing game for kids</title>
+    <meta name="description" content="A picture-story writing game for kids. Write about each row of pictures; every picture lights up when its word is used, and the rows join into one story. Works offline. No account." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fff7e8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17181f" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <main id="main" tabindex="-1"></main>
+    <p class="visually-hidden" id="announce" aria-live="polite" aria-atomic="true"></p>
+
+    <dialog id="picker" aria-labelledby="picker-title">
+      <form method="dialog" class="picker-inner">
+        <div class="picker-head">
+          <h2 id="picker-title">Choose a picture</h2>
+          <button type="submit" class="btn btn-quiet btn-small" value="cancel">Close</button>
+        </div>
+        <div class="photo-row">
+          <button type="button" class="btn btn-quiet" id="photo-btn">Use a photo or drawing</button>
+          <input id="photo-input" type="file" accept="image/*" hidden tabindex="-1" />
+          <p class="hint">Photos stay on this device. They're shrunk to save space.</p>
+        </div>
+        <p class="error" id="photo-error" role="alert"></p>
+        <div id="emoji-groups"></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

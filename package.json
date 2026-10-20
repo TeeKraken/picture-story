@@ -1,0 +1,22 @@
+{
+  "name": "picture-story",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A picture-story writing game for kids: each picture lights up once its word is used, and the rows join into one story.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "check": "tsc --noEmit && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.0",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.0"
+  },
+  "packageManager": "pnpm@11.5.2"
+}
