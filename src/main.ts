@@ -127,7 +127,7 @@ function footer({ wish = false }: { wish?: boolean } = {}) {
     h(
       "p",
       {},
-      "Stories, writing and photos are saved on this device only. The app has no account or tracking, and never uploads them.",
+      "Stories, writing and photos are saved on this device only, and the app never uploads them. No account, no cookies, no analytics scripts and no tracking. The site's host keeps a count of visits, and we only look at the totals to see if people find it.",
     ),
     h(
       "p",
