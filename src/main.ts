@@ -116,7 +116,11 @@ function noticeEl() {
   return el;
 }
 
-function footer() {
+const POST_IDEA_URL = "https://somebodybuildthis.dev/ideas/new";
+
+// The "post a wish" line is for grown-ups, so it only shows on the stories
+// screen (next to "For grown-ups"), never on the writing or story pages.
+function footer({ wish = false }: { wish?: boolean } = {}) {
   return h(
     "footer",
     { class: "foot" },
@@ -134,6 +138,15 @@ function footer() {
       h("a", { href: REPO_URL }, "Open source"),
       ".",
     ),
+    wish
+      ? h(
+          "p",
+          {},
+          "Made from a wish someone posted on Somebody Build This. Wish something existed? ",
+          h("a", { href: POST_IDEA_URL }, "Post it there"),
+          ", no tech words needed.",
+        )
+      : null,
   );
 }
 
@@ -609,7 +622,7 @@ function renderStories() {
           )
         : null,
     ),
-    footer(),
+    footer({ wish: true }),
   );
 }
 
