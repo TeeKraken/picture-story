@@ -127,7 +127,7 @@ function footer({ wish = false }: { wish?: boolean } = {}) {
     h(
       "p",
       {},
-      "Stories, writing and photos are saved on this device only. The app has no account or tracking, and never uploads them.",
+      "Stories, writing and photos are saved on this device only, and the app never uploads them. No account or cookies. The app adds no analytics scripts and doesn't track you. Our host, Vercel, keeps request logs that can include IP addresses and the site you came from. We only look at weekly totals of requests to load the app, grouped by that site, to see whether people find it. We don't look at individual requests.",
     ),
     h(
       "p",
