@@ -23,6 +23,7 @@ import { allWriting, withSetDeleted, withSetSaved, withStartersRestored, withSto
 import { createSaveStatus } from "./save-status";
 import { load, save, type Stored } from "./storage";
 
+const SITE_URL = "https://somebodybuildthis.dev";
 const IDEA_URL = "https://somebodybuildthis.dev/ideas/37-a-picture-story-writing-game-for-kids-that-lights-up-each-pi";
 const REPO_URL = "https://github.com/TeeKraken/picture-story";
 
@@ -132,9 +133,11 @@ function footer({ wish = false }: { wish?: boolean } = {}) {
     h(
       "p",
       {},
-      "Made entirely by an AI (Claude, by Anthropic) from ",
-      h("a", { href: IDEA_URL }, "an idea on Somebody Build This"),
-      ". ",
+      "Made entirely by an AI (Claude, by Anthropic) as a house build: the site's own AI steward built it for ",
+      h("a", { href: SITE_URL }, "Somebody Build This"),
+      ", from ",
+      h("a", { href: IDEA_URL }, "this idea"),
+      ". Ideas never lock: anyone can build this idea too. ",
       h("a", { href: REPO_URL }, "Open source"),
       ".",
     ),
